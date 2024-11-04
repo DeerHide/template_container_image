@@ -5,6 +5,7 @@ GREEN='\033[1;32m'
 YELLOW='\033[1;33m'
 WHITE='\033[1;37m'
 WHITE_GRAY='\033[1;30m'
+DARK_GRAY='\033[1;90m'
 NC='\033[0m'
 
 log_info() {
@@ -20,5 +21,5 @@ log_success() {
   echo -e "${GREEN}[SUCCESS] $1${NC}"
 }
 log_trace() {
-  echo -e "${WHITE_GRAY}[TRACE] $1${NC}"
+  echo -e "${DARK_GRAY}[TRACE] $1${NC}"
 }
