@@ -5,13 +5,28 @@ set -eo pipefail
 # Include the utils library
 source scripts/lib_utils.sh
 
-IMAGE_NAME="builah-example"
+MANIFEST_FILE="manifest.yaml"
+
 IMAGE_TAG="latest"
 IMAGE_FORMAT="oci"
 UBUNTU_VERSION="24.04"
 APP_UID="1000"
 
 BUILD_DIR="./build"
+
+check_for_manifest(){
+    if [[ ! -f "$MANIFEST_FILE" ]]; then
+        log_error "Manifest file not found"
+        exit 1
+    fi
+}
+
+retrieve_name_from_manifest(){
+    local name
+    name=$(yq e '.name' $MANIFEST_FILE)
+    echo $name
+}
+
 
 clean_build_dir(){
     if [[ -d "${BUILD_DIR}" ]]; then
@@ -48,18 +63,26 @@ hadolint_validate(){
 buildah_build(){
     local buildah_exec
     local buildah_exit_code
+    local buildah_args
+    local manifest_args
     log_info "Build Containerfile for ${IMAGE_NAME}:${IMAGE_TAG}"
     log_trace "$(buildah --version)"
 
     set +e
-    # Put in trace color
+    # Extract build args from manifest
+    buildah_args=()
+    for arg in $(yq e '.build.args[]' $MANIFEST_FILE); do
+        buildah_args+="--build-arg ${arg} "
+    done
+
+    log_trace "Buildah args: ${buildah_args}"
+
     buildah_exec=$(
         buildah build \
             --squash \
             --pull-always \
             --format ${IMAGE_FORMAT} \
-            --build-arg UBUNTU_VERSION=${UBUNTU_VERSION} \
-            --build-arg APP_UID=${APP_UID} \
+            ${buildah_args} \
             --tag ${IMAGE_NAME}:${IMAGE_TAG} \
             . \
             2>&1
@@ -159,9 +182,16 @@ trivy_scan () {
 }
 
 
+
+# Main
+
 clean_build_dir
+check_for_manifest # Check for manifest file existence\
+IMAGE_NAME=$(retrieve_name_from_manifest) # Retrieve image name from manifest
 hadolint_validate # Validate/Lint Containerfile
 buildah_build # Build Containerfile
 podman_save_image_to_tar # Save image to tar (for trivy scan)
 dive_scan # Filesystem scan and analysis
 trivy_scan # Vulnerability scan
+
+# TODO: Deploy to registry with skopeo using tags in manifest
