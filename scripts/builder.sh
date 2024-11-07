@@ -48,9 +48,8 @@ hadolint_validate(){
         podman run --rm -i hadolint/hadolint:latest < Containerfile \
             2>&1
     )
-    set -e
     hadolint_exit_code=$?
-
+    set -e
     if [[ $hadolint_exit_code -ne 0 ]]; then
         echo -e "${WHITE_GRAY}${hadolint_exec}${NC}"
         log_error "Hadolint validation failed"
@@ -68,7 +67,7 @@ buildah_build(){
     log_info "Build Containerfile for ${IMAGE_NAME}:${IMAGE_TAG}"
     log_trace "$(buildah --version)"
 
-    set +e
+
     # Extract build args from manifest
     buildah_args=()
     for arg in $(yq e '.build.args[]' $MANIFEST_FILE); do
@@ -76,7 +75,7 @@ buildah_build(){
     done
 
     log_trace "Buildah args: ${buildah_args}"
-
+    set +e
     buildah_exec=$(
         buildah build \
             --squash \
@@ -87,10 +86,9 @@ buildah_build(){
             . \
             2>&1
     )
-    set -e
     buildah_exit_code=$?
+    set -e
     if [[ $buildah_exit_code -ne 0 ]]; then
-        echo -e "${WHITE_GRAY}${buildah_exit_code}${NC}"
         log_error "Build failed"
         exit 1
     else
@@ -111,9 +109,8 @@ podman_save_image_to_tar(){
             ${IMAGE_NAME}:${IMAGE_TAG} \
             2>&1
     )
-    set -e
     podman_exit_code=$?
-
+    set -e
     if [[ $podman_exit_code -ne 0 ]]; then
         echo -e "${WHITE_GRAY}${podman_exec}${NC}"
         log_error "Saving image to tar failed"
@@ -165,10 +162,9 @@ trivy_scan () {
             ${IMAGE_NAME}:${IMAGE_TAG} \
             2>&1
     )
-    set -e
-
     # Detect exit code
     trivy_scan_exit_code=$?
+    set -e
     if [[ $trivy_scan_exit_code -eq 2 ]]; then
         echo -e "${WHITE_GRAY}${trivy_scan_exec}${NC}"
         log_error "Trivy scan failed"
