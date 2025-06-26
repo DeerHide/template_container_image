@@ -5,6 +5,8 @@ set -eo pipefail
 # Include the utils library
 source scripts/lib_utils.sh
 
+CLI="docker"
+
 MANIFEST_FILE="manifest.yaml"
 
 IMAGE_TAG="latest"
@@ -40,12 +42,12 @@ hadolint_validate(){
     local hadolint_exec
     local hadolint_exit_code
     log_info "Validating Dockerfile with hadolint"
-    podman pull -q ghcr.io/hadolint/hadolint:latest > /dev/null
-    log_trace "$(podman run --rm -i hadolint/hadolint:latest hadolint -v)"
+    ${CLI} pull -q ghcr.io/hadolint/hadolint:latest > /dev/null
+    log_trace "$(${CLI} run --rm -i hadolint/hadolint:latest hadolint -v)"
 
     set +e
     hadolint_exec=$(
-        podman run --rm -i hadolint/hadolint:latest < Containerfile \
+        ${CLI} run --rm -i hadolint/hadolint:latest < Containerfile \
             2>&1
     )
     hadolint_exit_code=$?
@@ -76,13 +78,14 @@ buildah_build(){
 
     log_trace "Buildah args: ${buildah_args}"
     set +e
+    additional_build_args=()
     buildah_exec=$(
         buildah build \
             --squash \
             --pull-always \
             --format ${IMAGE_FORMAT} \
             ${buildah_args} \
-            --tag ${IMAGE_NAME}:${IMAGE_TAG} \
+            --tag docker-daemon:${IMAGE_NAME}:${IMAGE_TAG} \
             . \
             2>&1
     )
@@ -90,6 +93,7 @@ buildah_build(){
     set -e
     if [[ $buildah_exit_code -ne 0 ]]; then
         log_error "Build failed"
+        log_error "${buildah_exec}"
         exit 1
     else
         log_success "Build completed successfully"
@@ -104,7 +108,7 @@ podman_save_image_to_tar(){
 
     set +e
     podman_exec=$(
-        podman save \
+        ${CLI} save \
             --output ${BUILD_DIR}/${IMAGE_NAME}-${IMAGE_TAG}.tar \
             ${IMAGE_NAME}:${IMAGE_TAG} \
             2>&1
@@ -113,6 +117,30 @@ podman_save_image_to_tar(){
     set -e
     if [[ $podman_exit_code -ne 0 ]]; then
         echo -e "${WHITE_GRAY}${podman_exec}${NC}"
+        log_error "Saving image to tar failed"
+        exit 1
+    else
+        log_success "Image saved to ${BUILD_DIR}/${IMAGE_NAME}-${IMAGE_TAG}.tar"
+    fi
+}
+
+docker_save_image_to_tar(){
+    local docker_exec
+    local docker_exit_code
+    log_info "Saving image to tar ${IMAGE_NAME}:${IMAGE_TAG}"
+    log_trace "$(docker --version)"
+
+    set +e
+    docker_exec=$(
+        ${CLI} save \
+            --output ${BUILD_DIR}/${IMAGE_NAME}-${IMAGE_TAG}.tar \
+            ${IMAGE_NAME}:${IMAGE_TAG} \
+            2>&1
+    )
+    docker_exit_code=$?
+    set -e
+    if [[ $docker_exit_code -ne 0 ]]; then
+        echo -e "${WHITE_GRAY}${docker_exec}${NC}"
         log_error "Saving image to tar failed"
         exit 1
     else
@@ -129,7 +157,7 @@ dive_scan() {
     dive_scan=$(\
         dive \
             --ci \
-            --source=podman \
+            --source=${CLI} \
             ${IMAGE_NAME}:${IMAGE_TAG} \
             2>&1 \
     )
@@ -186,7 +214,16 @@ check_for_manifest # Check for manifest file existence\
 IMAGE_NAME=$(retrieve_name_from_manifest) # Retrieve image name from manifest
 hadolint_validate # Validate/Lint Containerfile
 buildah_build # Build Containerfile
-podman_save_image_to_tar # Save image to tar (for trivy scan)
+
+if [[ $CLI == "podman" ]]; then
+    podman_save_image_to_tar # Save image to tar (for trivy scan)
+elif [[ $CLI == "docker" ]]; then
+    docker_save_image_to_tar # Save image to tar (for trivy scan)
+else
+    log_error "Invalid CLI"
+    exit 1
+fi
+
 dive_scan # Filesystem scan and analysis
 trivy_scan # Vulnerability scan
 
