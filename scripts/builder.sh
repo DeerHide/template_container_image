@@ -205,13 +205,18 @@ trivy_scan () {
     fi
 }
 
-
-
 # Main
-
 clean_build_dir
 check_for_manifest # Check for manifest file existence\
 IMAGE_NAME=$(retrieve_name_from_manifest) # Retrieve image name from manifest
+
+log_info "Starting build process"
+log_trace "CLI: ${CLI}"
+log_trace "IMAGE_NAME: ${IMAGE_NAME}"
+log_trace "IMAGE_TAG: ${IMAGE_TAG}"
+log_trace "IMAGE_FORMAT: ${IMAGE_FORMAT}"
+
+
 hadolint_validate # Validate/Lint Containerfile
 buildah_build # Build Containerfile
 

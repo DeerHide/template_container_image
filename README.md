@@ -2,17 +2,14 @@
 
 ## Pre-requisites
 
-### Install `podman`
+### Install `docker`
+[See Docker documentation](https://docs.docker.com/get-docker/)
 
-### Install `hadolint`
+### Install tools
 
-### Install `buildah`
-
-### Install `dive`
-
-### Install `trivy`
-
-### Install `yq`
+```bash
+./scripts/install_tools.sh
+```
 
 ## How to build the container image
 
