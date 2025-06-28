@@ -37,3 +37,7 @@ wget https://github.com/mikefarah/yq/releases/download/${VERSION}/${BINARY}.tar.
 if [[ -f "yq.1" ]]; then
   rm yq.1
 fi
+
+# Install skopeo
+sudo apt-get -y update
+sudo apt-get -y install skopeo

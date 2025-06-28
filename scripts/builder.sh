@@ -29,6 +29,12 @@ retrieve_name_from_manifest(){
     echo $name
 }
 
+retrieve_registry_from_manifest(){
+    local registry
+    registry=$(yq e '.registry' $MANIFEST_FILE)
+    echo $registry
+}
+
 
 clean_build_dir(){
     if [[ -d "${BUILD_DIR}" ]]; then
@@ -232,4 +238,6 @@ fi
 dive_scan # Filesystem scan and analysis
 trivy_scan # Vulnerability scan
 
-# TODO: Deploy to registry with skopeo using tags in manifest
+# Deploy to registry with skopeo using tags in manifest
+registry=$(retrieve_registry_from_manifest)
+skopeo copy docker-daemon:${IMAGE_NAME}:${IMAGE_TAG} docker://${registry}:${IMAGE_TAG}
