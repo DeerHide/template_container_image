@@ -84,7 +84,6 @@ buildah_build(){
 
     log_trace "Buildah args: ${buildah_args}"
     set +e
-    additional_build_args=()
     buildah_exec=$(
         buildah build \
             --squash \
