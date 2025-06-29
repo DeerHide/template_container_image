@@ -1,0 +1,9 @@
+name: deerhide_container_example
+tags: 
+  - latest
+registry: ghcr.io/deerhide/template_container_image
+build:
+  format: oci
+  args:
+    - APP_UID=1000
+    - UBUNTU_VERSION=24.04
