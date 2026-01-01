@@ -7,3 +7,9 @@ build:
   args:
     - APP_UID=1000
     - UBUNTU_VERSION=24.04
+  labels:
+    - org.opencontainers.image.source=https://github.com/deerhide/template_container_image
+    - org.opencontainers.image.description="Template container image"
+    - org.opencontainers.image.licenses="MIT"
+    - org.opencontainers.image.authors="Deerhide"
+    - org.opencontainers.image.vendor="Deerhide"

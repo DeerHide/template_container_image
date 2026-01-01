@@ -71,6 +71,8 @@ buildah_build(){
     local buildah_exec
     local buildah_exit_code
     local buildah_args
+    local buildah_labels
+    local buildah_labels_array
     local manifest_args
     log_info "Build Containerfile for ${IMAGE_NAME}:${IMAGE_TAG}"
     log_trace "$(buildah --version)"
@@ -82,7 +84,29 @@ buildah_build(){
         buildah_args+="--build-arg ${arg} "
     done
 
+    # Extract labels from manifest
+    buildah_labels=()
+    buildah_labels_array=()
+    while IFS= read -r label; do
+        if [[ -n "${label}" ]]; then
+            # Parse key=value and remove quotes from value if present
+            # Handle both key=value and key="value" formats
+            if [[ "${label}" =~ ^([^=]+)=(.*)$ ]]; then
+                local label_key="${BASH_REMATCH[1]}"
+                local label_value="${BASH_REMATCH[2]}"
+                # Remove surrounding quotes from value if present
+                label_value=$(echo "${label_value}" | sed -e 's/^"//' -e 's/"$//')
+                # Reconstruct label without quotes in value
+                label="${label_key}=${label_value}"
+            fi
+            # Add to both string (for logging) and array (for command)
+            buildah_labels+="--label ${label} "
+            buildah_labels_array+=("--label" "${label}")
+        fi
+    done < <(yq e '.build.labels[]' $MANIFEST_FILE)
+
     log_trace "Buildah args: ${buildah_args}"
+    log_trace "Buildah labels: ${buildah_labels}"
     set +e
     buildah_exec=$(
         buildah build \
@@ -90,7 +114,8 @@ buildah_build(){
             --pull-always \
             --format ${IMAGE_FORMAT} \
             ${buildah_args} \
-            --tag docker-daemon:${IMAGE_NAME}:${IMAGE_TAG} \
+            "${buildah_labels_array[@]}" \
+            --tag ${IMAGE_NAME}:${IMAGE_TAG} \
             . \
             2>&1
     )
@@ -103,6 +128,81 @@ buildah_build(){
     else
         log_success "Build completed successfully"
     fi
+    
+    # Copy to docker-daemon after successful build
+    # Save image to tar first, then load into docker daemon
+    # Store tar path in a variable for later use with skopeo
+    export BUILD_TAR="${BUILD_DIR}/${IMAGE_NAME}-${IMAGE_TAG}-temp.tar"
+    log_info "Saving image to temporary tar: ${BUILD_TAR}"
+    set +e
+    buildah_exec=$(
+        buildah push ${IMAGE_NAME}:${IMAGE_TAG} oci-archive:${BUILD_TAR} \
+            2>&1
+    )
+    buildah_exit_code=$?
+    set -e
+    if [[ $buildah_exit_code -ne 0 ]]; then
+        log_error "Failed to save image to tar"
+        log_error "${buildah_exec}"
+        exit 1
+    else
+        log_success "Image saved to tar successfully"
+        # Verify labels are in the tar file
+        if command -v skopeo &> /dev/null; then
+            local tar_labels
+            tar_labels=$(skopeo inspect oci-archive:${BUILD_TAR} --format '{{.Labels}}' 2>/dev/null || echo "")
+            if [[ -n "${tar_labels}" ]]; then
+                log_trace "Labels in tar file: ${tar_labels}"
+            else
+                log_warn "No labels found in tar file"
+            fi
+        fi
+    fi
+    
+    log_info "Loading image into Docker daemon: ${IMAGE_NAME}:${IMAGE_TAG}"
+    set +e
+    buildah_exec=$(
+        docker load -i ${BUILD_TAR} \
+            2>&1
+    )
+    buildah_exit_code=$?
+    set -e
+    
+    if [[ $buildah_exit_code -ne 0 ]]; then
+        log_error "Failed to load image into Docker daemon"
+        log_error "${buildah_exec}"
+        exit 1
+    fi
+    
+    # docker load might not preserve the tag, so we need to tag it
+    # Extract the loaded image name/ID from the output
+    # Format can be: "Loaded image: name:tag" or "Loaded image ID: sha256:..."
+    local loaded_image=""
+    if echo "${buildah_exec}" | grep -qi "Loaded image:"; then
+        # Extract image name:tag format
+        loaded_image=$(echo "${buildah_exec}" | grep -i "Loaded image:" | sed -E 's/.*Loaded image: //' | head -n1 | tr -d '\r\n')
+    elif echo "${buildah_exec}" | grep -qi "Loaded image ID:"; then
+        # Extract just the sha256:... part
+        loaded_image=$(echo "${buildah_exec}" | grep -i "Loaded image ID:" | sed -E 's/.*Loaded image ID: //' | head -n1 | tr -d '\r\n')
+    fi
+    
+    if [[ -n "${loaded_image}" && "${loaded_image}" != "${IMAGE_NAME}:${IMAGE_TAG}" ]]; then
+        log_info "Tagging loaded image ${loaded_image} as ${IMAGE_NAME}:${IMAGE_TAG}"
+        set +e
+        buildah_exec=$(
+            docker tag "${loaded_image}" "${IMAGE_NAME}:${IMAGE_TAG}" \
+                2>&1
+        )
+        buildah_exit_code=$?
+        set -e
+        if [[ $buildah_exit_code -ne 0 ]]; then
+            log_error "Failed to tag image"
+            log_error "${buildah_exec}"
+            exit 1
+        fi
+    fi
+    
+    log_success "Image loaded into Docker daemon successfully"
 }
 
 podman_save_image_to_tar(){
@@ -238,5 +338,24 @@ dive_scan # Filesystem scan and analysis
 trivy_scan # Vulnerability scan
 
 # Deploy to registry with skopeo using tags in manifest
+# Use oci-archive (tar file) as source to avoid Docker API version issues
 registry=$(retrieve_registry_from_manifest)
-skopeo copy docker-daemon:${IMAGE_NAME}:${IMAGE_TAG} docker://${registry}:${IMAGE_TAG}
+if [[ -n "${BUILD_TAR}" && -f "${BUILD_TAR}" ]]; then
+    log_info "Pushing image to registry: ${registry}:${IMAGE_TAG}"
+    # Use --all to copy all formats and preserve metadata including labels
+    skopeo copy --all oci-archive:${BUILD_TAR} docker://${registry}:${IMAGE_TAG}
+    log_success "Image pushed to registry successfully"
+    # Verify labels in registry
+    log_info "Verifying labels in registry..."
+    registry_labels=$(skopeo inspect docker://${registry}:${IMAGE_TAG} --format '{{.Labels}}' 2>/dev/null || echo "")
+    if [[ -n "${registry_labels}" ]]; then
+        log_trace "Labels in registry: ${registry_labels}"
+    else
+        log_warn "No labels found in registry image"
+    fi
+    # Clean up temp tar file after registry push
+    rm -f ${BUILD_TAR}
+else
+    log_error "Build tar file not found, cannot push to registry"
+    exit 1
+fi
