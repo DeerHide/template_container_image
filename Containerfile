@@ -29,4 +29,4 @@ FROM base as runtime
 USER ${APP_UID}
 WORKDIR ${APP_HOME}
 
-CMD ["/bin/bash -c 'while true; do sleep 1; done'"]
+CMD ["/bin/bash", "-c", "while true; do sleep 1; done"]
