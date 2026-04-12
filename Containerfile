@@ -19,10 +19,9 @@ RUN userdel --remove ubuntu \
 # Update and upgrade the system
 RUN apt-get update \
     && apt-get upgrade -y \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/* \
     && apt-get autoremove -y \
-    && apt-get autoclean -y
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
 FROM base as runtime
 
